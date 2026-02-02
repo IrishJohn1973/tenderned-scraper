@@ -56,8 +56,8 @@ class DailyScraper:
         with self.conn.cursor() as cur:
             cur.execute("""
                 SELECT GREATEST(
-                    COALESCE((SELECT MAX(source_id::int) FROM tenderned_tenders WHERE source = tenderned), 0),
-                    COALESCE((SELECT MAX(source_id::int) FROM tenderned_awards WHERE source = tenderned), 0)
+                    COALESCE((SELECT MAX(source_id::int) FROM tenderned_tenders WHERE source = 'tenderned'), 0),
+                    COALESCE((SELECT MAX(source_id::int) FROM tenderned_awards WHERE source = 'tenderned'), 0)
                 )
             """)
             result = cur.fetchone()[0]
@@ -124,7 +124,7 @@ class DailyScraper:
                     INSERT INTO tenderned_tenders
                     (source, source_id, title, buyer_name, buyer_country, notice_type,
                      published_at, deadline, is_above_threshold, detail_url, fetched_at)
-                    VALUES (tenderned, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES ('tenderned', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (source, source_id) DO NOTHING
                 """, (
                     str(pub_id),
@@ -154,7 +154,7 @@ class DailyScraper:
                     (source, source_id, title, buyer_name, buyer_country,
                      award_date, is_above_threshold, detail_url,
                      supplier_name, kvk_number, award_value, fetched_at)
-                    VALUES (tenderned, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES ('tenderned', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (source, source_id) DO NOTHING
                 """, (
                     str(pub_id),
