@@ -26,9 +26,11 @@ logger = logging.getLogger(__name__)
 
 
 def get_db_config():
+    # Handle empty string case for port (GitHub Actions sets empty secrets as "")
+    port_str = os.environ.get('VALAN_DB_PORT', '') or '5432'
     return {
         'host': os.environ.get('VALAN_DB_HOST'),
-        'port': int(os.environ.get('VALAN_DB_PORT', 5432)),
+        'port': int(port_str),
         'dbname': os.environ.get('VALAN_DB_NAME'),
         'user': os.environ.get('VALAN_DB_USER'),
         'password': os.environ.get('VALAN_DB_PASSWORD'),

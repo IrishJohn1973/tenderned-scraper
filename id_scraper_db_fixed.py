@@ -393,14 +393,22 @@ def main():
     parser.add_argument('--update', action='store_true', help='Update existing records')
     args = parser.parse_args()
 
+    # Handle empty string case for port (GitHub Actions sets empty secrets as "")
+    port_str = os.environ.get('VALAN_DB_PORT', '') or '5432'
+
     db_config = {
-        'host': os.environ.get('VALAN_DB_HOST', 'db.hjekfyirwzlybhnnzcjm.supabase.co'),
-        'port': int(os.environ.get('VALAN_DB_PORT', 5432)),
+        'host': os.environ.get('VALAN_DB_HOST', ''),
+        'port': int(port_str),
         'dbname': os.environ.get('VALAN_DB_NAME', 'postgres'),
         'user': os.environ.get('VALAN_DB_USER', 'postgres'),
-        'password': os.environ.get('VALAN_DB_PASSWORD', 'Killorgin1973!'),
+        'password': os.environ.get('VALAN_DB_PASSWORD', ''),
         'connect_timeout': 30,
     }
+
+    # Validate required credentials
+    if not db_config['host'] or not db_config['password']:
+        logger.error("Missing required database credentials. Set VALAN_DB_HOST and VALAN_DB_PASSWORD environment variables.")
+        sys.exit(1)
 
     scraper = IDScraperDBFixed(db_config=db_config)
     scraper.run(start_id=args.start, end_id=args.end, update_existing=args.update)
