@@ -61,7 +61,7 @@ class DailyScraper:
                 )
             """)
             result = cur.fetchone()[0]
-            return result or 392000
+            return int(result) if result else 392000
 
     def get_latest_api_id(self) -> int:
         """Get the latest publication ID from TenderNed API."""
@@ -72,7 +72,8 @@ class DailyScraper:
                 data = r.json()
                 content = data.get("content", [])
                 if content:
-                    return content[0].get("publicatieId", 0)
+                    pub_id = content[0].get("publicatieId", 0)
+                    return int(pub_id) if pub_id else 0
         except Exception as e:
             logger.error(f"Error getting latest ID: {e}")
         return 0
