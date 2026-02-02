@@ -112,27 +112,96 @@ class DailyScraper:
             pass
         return None
 
+    def extract_cpv_codes(self, pub: dict) -> tuple:
+        """Extract CPV codes from publication."""
+        cpv_list = pub.get("cpvCodes", []) or []
+        all_codes = []
+        primary_code = None
+        for cpv in cpv_list:
+            code = cpv.get("code", "")
+            if code:
+                all_codes.append(code)
+                if cpv.get("isHoofdOpdracht"):
+                    primary_code = code
+        return all_codes, primary_code or (all_codes[0] if all_codes else None)
+
+    def extract_nuts_codes(self, pub: dict) -> list:
+        """Extract NUTS codes from publication."""
+        nuts_list = pub.get("nutsCodes", []) or []
+        return [n.get("code") for n in nuts_list if n.get("code")]
+
     def insert_tender(self, pub: dict):
         pub_id = pub.get("publicatieId")
-        buyer = pub.get("aanbestedendeDienst", {}) or {}
-        buyer_name = buyer.get("naam", "") if isinstance(buyer, dict) else str(buyer)
-        type_pub = pub.get("typePublicatie", {})
-        notice_type = type_pub.get("omschrijving", "") if isinstance(type_pub, dict) else str(type_pub)
+
+        # Extract buyer name - API uses opdrachtgeverNaam
+        buyer_name = pub.get("opdrachtgeverNaam", "") or ""
+
+        # Extract notice type
+        notice_type = pub.get("typePublicatie", "")
+
+        # Extract CPV codes
+        cpv_codes, cpv_primary = self.extract_cpv_codes(pub)
+
+        # Extract NUTS codes
+        nuts_codes = self.extract_nuts_codes(pub)
+
+        # Extract contract type
+        type_opdracht = pub.get("typeOpdrachtCode", {}) or {}
+        contract_type = type_opdracht.get("omschrijving", "") if isinstance(type_opdracht, dict) else ""
+
+        # Extract procedure
+        procedure = pub.get("procedureCode", {}) or {}
+        procurement_method = procedure.get("omschrijving", "") if isinstance(procedure, dict) else ""
+
+        # Check if European (above threshold)
+        nat_eu = pub.get("nationaalOfEuropeesCode", {}) or {}
+        is_european = nat_eu.get("code", "") == "EU" if isinstance(nat_eu, dict) else False
+
+        # Extract description
+        description = pub.get("opdrachtBeschrijving", "") or ""
+
+        # Extract reference number
+        internal_ref = pub.get("referentieNummer", "") or str(pub.get("kenmerk", "") or "")
 
         try:
             with self.conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO tenderned_tenders
-                    (source, source_id, title, buyer_name, buyer_country, notice_type,
-                     published_at, deadline, is_above_threshold, detail_url, fetched_at)
-                    VALUES ('tenderned', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (source, source_id) DO NOTHING
+                    (source, source_id, title, short_description, buyer_name, buyer_country,
+                     notice_type, internal_ref, cpv_codes, cpv_primary, nuts_codes,
+                     contract_type, procurement_method, published_at, deadline,
+                     is_above_threshold, detail_url, fetched_at)
+                    VALUES ('tenderned', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (source, source_id) DO UPDATE SET
+                        title = EXCLUDED.title,
+                        short_description = EXCLUDED.short_description,
+                        buyer_name = EXCLUDED.buyer_name,
+                        notice_type = EXCLUDED.notice_type,
+                        internal_ref = EXCLUDED.internal_ref,
+                        cpv_codes = EXCLUDED.cpv_codes,
+                        cpv_primary = EXCLUDED.cpv_primary,
+                        nuts_codes = EXCLUDED.nuts_codes,
+                        contract_type = EXCLUDED.contract_type,
+                        procurement_method = EXCLUDED.procurement_method,
+                        deadline = EXCLUDED.deadline,
+                        is_above_threshold = EXCLUDED.is_above_threshold,
+                        updated_at = NOW()
                 """, (
                     str(pub_id),
                     pub.get("aanbestedingNaam") or pub.get("titel") or "",
-                    buyer_name, "NL", notice_type,
-                    pub.get("publicatieDatum"), pub.get("sluitingsDatum"),
-                    pub.get("europees", False),
+                    description[:2000] if description else None,
+                    buyer_name,
+                    "NL",
+                    notice_type,
+                    internal_ref or None,
+                    cpv_codes if cpv_codes else None,
+                    cpv_primary,
+                    nuts_codes if nuts_codes else None,
+                    contract_type or None,
+                    procurement_method or None,
+                    pub.get("publicatieDatum"),
+                    pub.get("sluitingsDatum"),
+                    is_european,
                     f"https://www.tenderned.nl/aankondigingen/overzicht/{pub_id}",
                     datetime.now()
                 ))
@@ -144,8 +213,23 @@ class DailyScraper:
 
     def insert_award(self, pub: dict, winner_data: dict = None):
         pub_id = pub.get("publicatieId")
-        buyer = pub.get("aanbestedendeDienst", {}) or {}
-        buyer_name = buyer.get("naam", "") if isinstance(buyer, dict) else str(buyer)
+
+        # Extract buyer name - API uses opdrachtgeverNaam
+        buyer_name = pub.get("opdrachtgeverNaam", "") or ""
+
+        # Extract notice type
+        notice_type = pub.get("typePublicatie", "")
+
+        # Extract CPV codes
+        cpv_codes, cpv_primary = self.extract_cpv_codes(pub)
+
+        # Check if European (above threshold)
+        nat_eu = pub.get("nationaalOfEuropeesCode", {}) or {}
+        is_european = nat_eu.get("code", "") == "EU" if isinstance(nat_eu, dict) else False
+
+        # Extract reference number
+        internal_ref = pub.get("referentieNummer", "") or str(pub.get("kenmerk", "") or "")
+
         winner_data = winner_data or {}
 
         try:
@@ -153,18 +237,38 @@ class DailyScraper:
                 cur.execute("""
                     INSERT INTO tenderned_awards
                     (source, source_id, title, buyer_name, buyer_country,
+                     notice_type, internal_ref, cpv_codes, cpv_primary,
                      award_date, is_above_threshold, detail_url,
                      supplier_name, kvk_number, award_value, fetched_at)
-                    VALUES ('tenderned', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (source, source_id) DO NOTHING
+                    VALUES ('tenderned', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (source, source_id) DO UPDATE SET
+                        title = EXCLUDED.title,
+                        buyer_name = EXCLUDED.buyer_name,
+                        notice_type = EXCLUDED.notice_type,
+                        internal_ref = EXCLUDED.internal_ref,
+                        cpv_codes = EXCLUDED.cpv_codes,
+                        cpv_primary = EXCLUDED.cpv_primary,
+                        is_above_threshold = EXCLUDED.is_above_threshold,
+                        supplier_name = COALESCE(EXCLUDED.supplier_name, tenderned_awards.supplier_name),
+                        kvk_number = COALESCE(EXCLUDED.kvk_number, tenderned_awards.kvk_number),
+                        award_value = COALESCE(EXCLUDED.award_value, tenderned_awards.award_value),
+                        updated_at = NOW()
                 """, (
                     str(pub_id),
                     pub.get("aanbestedingNaam") or pub.get("titel") or "",
-                    buyer_name, "NL",
-                    pub.get("publicatieDatum"), pub.get("europees", False),
+                    buyer_name,
+                    "NL",
+                    notice_type,
+                    internal_ref or None,
+                    cpv_codes if cpv_codes else None,
+                    cpv_primary,
+                    pub.get("publicatieDatum"),
+                    is_european,
                     f"https://www.tenderned.nl/aankondigingen/overzicht/{pub_id}",
-                    winner_data.get("supplier_name"), winner_data.get("kvk_number"),
-                    winner_data.get("award_value"), datetime.now()
+                    winner_data.get("supplier_name"),
+                    winner_data.get("kvk_number"),
+                    winner_data.get("award_value"),
+                    datetime.now()
                 ))
             self.conn.commit()
             self.stats["awards"] += 1
