@@ -97,14 +97,6 @@ def feed_to_master(tenders=True, awards=True, dry_run=False):
     print(f'Master tenders (NL): {before_tenders:,} → {after_tenders:,} (+{after_tenders - before_tenders:,})')
     print(f'Master awards (NL):  {before_awards:,} → {after_awards:,} (+{after_awards - before_awards:,})')
 
-    # Total master counts
-    cur.execute('SELECT COUNT(*) FROM master_tenders')
-    total_tenders = cur.fetchone()[0]
-    cur.execute('SELECT COUNT(*) FROM master_awards')
-    total_awards = cur.fetchone()[0]
-    print(f'\nTotal in master_tenders: {total_tenders:,}')
-    print(f'Total in master_awards:  {total_awards:,}')
-
     conn.close()
     print('\n✅ Feed complete!')
 
